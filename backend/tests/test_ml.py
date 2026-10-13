@@ -16,7 +16,7 @@ from app.core.security import get_password_hash, create_access_token
 from app.services.ticket_classifier import classifier_engine, SEED_TRAINING_DATA
 
 # In-memory SQLite DB for tests
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+SQLALCHEMY_DATABASE_URL = "sqlite://"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

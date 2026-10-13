@@ -15,7 +15,7 @@ from app.core.security import get_password_hash
 from app.schemas.copilot import CopilotTone, CopilotLength, RefinementAction
 
 # In-memory SQLite DB for tests
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+SQLALCHEMY_DATABASE_URL = "sqlite://"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
