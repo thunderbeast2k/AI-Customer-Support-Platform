@@ -18,6 +18,15 @@ import {
   ShieldCheck,
   Bot,
   UserCheck,
+  User,
+  LogIn,
+  LogOut,
+  X,
+  ChevronRight,
+  ChevronDown,
+  Edit3,
+  AlertCircle,
+  ThumbsUp,
   Key,
   Lock,
   Users,
@@ -142,10 +151,176 @@ interface AuditLogItem {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "webhooks" | "analytics" | "copilot" | "ml_triage" | "rag" | "chat" | "knowledge" | "tickets" | "audit" | "auth" | "schema" | "status" | "sandbox" | "powershell" | "roadmap"
-  >("webhooks");
+    "tickets" | "chat" | "knowledge" | "analytics" | "copilot" | "ml_triage" | "webhooks" | "auth" | "rag" | "audit" | "schema" | "status" | "sandbox" | "powershell" | "roadmap"
+  >("tickets");
 
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
+
+  // ----------------------------------------------------
+  // User Authentication & Session State (Sign In Flow)
+  // ----------------------------------------------------
+  const availableUsers = [
+    {
+      id: "usr-agent",
+      name: "Sarah Jenkins",
+      email: "agent@support.ai",
+      role: "agent" as const,
+      avatar: "SJ",
+      title: "Senior Support Specialist",
+      department: "Tier 2 Customer Engineering",
+      token: "jwt_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.sarah_agent_2026",
+    },
+    {
+      id: "usr-cust",
+      name: "Alex Mercer",
+      email: "alex@customer.com",
+      role: "customer" as const,
+      avatar: "AM",
+      title: "Enterprise Client Lead",
+      department: "Acme Logistics Corp",
+      token: "jwt_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.alex_customer_2026",
+    },
+    {
+      id: "usr-admin",
+      name: "Elena Rostova",
+      email: "admin@support.ai",
+      role: "admin" as const,
+      avatar: "ER",
+      title: "Platform Administrator",
+      department: "Security & Knowledge Ops",
+      token: "jwt_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.elena_admin_2026",
+    },
+  ];
+
+  const [currentUser, setCurrentUser] = useState(availableUsers[0]);
+  const [isSignInModalOpen, setIsSignInModalOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("agent@support.ai");
+  const [loginPassword, setLoginPassword] = useState("AgentPass123!");
+  const [loginRole, setLoginRole] = useState<"agent" | "customer" | "admin">("agent");
+  const [authSuccessToast, setAuthSuccessToast] = useState<string | null>(null);
+
+  // ----------------------------------------------------
+  // Company Knowledge Upload State (Document Ingestion)
+  // ----------------------------------------------------
+  const [isUploadDocModalOpen, setIsUploadDocModalOpen] = useState(false);
+  const [uploadDocTitle, setUploadDocTitle] = useState("");
+  const [uploadDocCategory, setUploadDocCategory] = useState("Billing & Invoicing");
+  const [uploadDocFileType, setUploadDocFileType] = useState<"pdf" | "md" | "txt">("md");
+  const [uploadDocContent, setUploadDocContent] = useState("");
+  const [uploadDocChunkSize, setUploadDocChunkSize] = useState(250);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [uploadDocProgressStep, setUploadDocProgressStep] = useState(0); // 0: idle, 1: parse, 2: 384d embed, 3: pgvector index, 4: complete
+  const [knowledgeUploadToast, setKnowledgeUploadToast] = useState<string | null>(null);
+
+  // ----------------------------------------------------
+  // Ticket Creation & AI Triage State (Create & Classify)
+  // ----------------------------------------------------
+  const [isCreateTicketModalOpen, setIsCreateTicketModalOpen] = useState(false);
+  const [newTicketTitle, setNewTicketTitle] = useState("");
+  const [newTicketDescription, setNewTicketDescription] = useState("");
+  const [newTicketCustomerName, setNewTicketCustomerName] = useState("Alex Mercer");
+  const [newTicketCustomerEmail, setNewTicketCustomerEmail] = useState("alex@customer.com");
+  const [newTicketPredictedCategory, setNewTicketPredictedCategory] = useState<TicketItem["category"]>("billing");
+  const [newTicketPredictedPriority, setNewTicketPredictedPriority] = useState<TicketItem["priority"]>("high");
+  const [newTicketConfidence, setNewTicketConfidence] = useState<number>(0.94);
+  const [newTicketSentiment, setNewTicketSentiment] = useState<"positive" | "neutral" | "negative" | "frustrated">("negative");
+  const [newTicketSuggestedAction, setNewTicketSuggestedAction] = useState<string>("Verify billing ledger for duplicate pre-authorization holds");
+  const [isClassifyingNewTicket, setIsClassifyingNewTicket] = useState(false);
+  const [newTicketClassified, setNewTicketClassified] = useState(false);
+  const [ticketActionToast, setTicketActionToast] = useState<string | null>(null);
+
+  // ----------------------------------------------------
+  // Agent Ticket Management Workbench State
+  // ----------------------------------------------------
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>("t-1");
+  const [ticketFilterStatus, setTicketFilterStatus] = useState<"all" | "open" | "in_progress" | "resolved" | "closed">("all");
+  const [ticketFilterCategory, setTicketFilterCategory] = useState<string>("all");
+  const [ticketFilterPriority, setTicketFilterPriority] = useState<string>("all");
+  const [ticketSearchQuery, setTicketSearchQuery] = useState("");
+  const [agentReplyInput, setAgentReplyInput] = useState("");
+  const [internalNoteInput, setInternalNoteInput] = useState("");
+  const [isSendingAgentReply, setIsSendingAgentReply] = useState(false);
+
+  // Thread activity history for tickets
+  const [ticketActivities, setTicketActivities] = useState<Record<string, Array<{
+    id: string;
+    author: string;
+    role: "customer" | "agent" | "system" | "note";
+    content: string;
+    timestamp: string;
+  }>>>({
+    "t-1": [
+      {
+        id: "act-t1-1",
+        author: "Alex Customer",
+        role: "customer",
+        content: "Customer reports two duplicate invoice line items for subscription seat count on Visa card.",
+        timestamp: "Today at 09:30 AM",
+      },
+      {
+        id: "act-t1-2",
+        author: "AI Triage System",
+        role: "system",
+        content: "Auto-classified as Category: BILLING, Priority: HIGH (Confidence: 94.2%). Recommended action: Verify 72-hour pre-auth hold.",
+        timestamp: "Today at 09:31 AM",
+      },
+      {
+        id: "act-t1-3",
+        author: "Sarah Support",
+        role: "agent",
+        content: "Hello Alex, I reviewed your statement. The $199 charge is an authorization hold that will drop within 72 hours. If both post, we will issue an immediate refund.",
+        timestamp: "Today at 09:45 AM",
+      },
+    ],
+    "t-2": [
+      {
+        id: "act-t2-1",
+        author: "Morgan Engineer",
+        role: "customer",
+        content: "Enterprise tenant experiencing clock drift skew and HTTP 504 errors during ACS post on Okta SAML.",
+        timestamp: "Today at 08:15 AM",
+      },
+      {
+        id: "act-t2-2",
+        author: "AI Triage System",
+        role: "system",
+        content: "Auto-classified as Category: TECHNICAL_ISSUE, Priority: URGENT (Confidence: 97.5%). Recommended action: Inspect NTP clock drift <120s.",
+        timestamp: "Today at 08:16 AM",
+      },
+    ],
+    "t-3": [
+      {
+        id: "act-t3-1",
+        author: "Taylor Admin",
+        role: "customer",
+        content: "Lost device with 2FA authenticator app. Need backup recovery code or reset.",
+        timestamp: "Today at 10:04 AM",
+      },
+      {
+        id: "act-t3-2",
+        author: "AI Triage System",
+        role: "system",
+        content: "Auto-classified as Category: ACCOUNT_ACCESS, Priority: HIGH (Confidence: 91.8%). Recommended action: Issue temporary one-time bypass link.",
+        timestamp: "Today at 10:05 AM",
+      },
+    ],
+    "t-4": [
+      {
+        id: "act-t4-1",
+        author: "Jordan Buyer",
+        role: "customer",
+        content: "Courier has not updated the shipment dispatch status for order ORD-8891 for 5 days.",
+        timestamp: "Yesterday at 04:20 PM",
+      },
+      {
+        id: "act-t4-2",
+        author: "AI Triage System",
+        role: "system",
+        content: "Auto-classified as Category: PRODUCT_INQUIRY, Priority: MEDIUM (Confidence: 89.3%).",
+        timestamp: "Yesterday at 04:21 PM",
+      },
+    ],
+  });
 
   // ----------------------------------------------------
   // Phase 10: Multi-Channel Webhooks & Production Ops State
@@ -1851,7 +2026,420 @@ Enterprise Cloud Support Desk`,
     }, 450);
   };
 
-  // Customer Chat Message Send
+  // ----------------------------------------------------
+  // Core Workflow 1: User Authentication & Role Switching
+  // ----------------------------------------------------
+  const handleSignIn = (user: (typeof availableUsers)[0]) => {
+    setCurrentUser(user);
+    setIsSignInModalOpen(false);
+    setAuthSuccessToast(`Authenticated as ${user.name} (${user.role.toUpperCase()})`);
+    setTimeout(() => setAuthSuccessToast(null), 4000);
+  };
+
+  const handleManualLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const found = availableUsers.find((u) => u.email.toLowerCase() === loginEmail.toLowerCase());
+    const matched = found || {
+      id: `usr-${Date.now()}`,
+      name: loginEmail.split("@")[0].replace(".", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+      email: loginEmail,
+      role: loginRole,
+      avatar: loginEmail.substring(0, 2).toUpperCase(),
+      title: loginRole === "agent" ? "Support Agent" : loginRole === "admin" ? "Platform Admin" : "Customer",
+      department: loginRole === "agent" ? "Customer Support" : loginRole === "admin" ? "Operations" : "Account Holder",
+      token: `jwt_${Math.random().toString(36).substring(2, 12)}.${loginRole}_token`,
+    };
+    handleSignIn(matched);
+  };
+
+  // ----------------------------------------------------
+  // Core Workflow 2: Upload Company Knowledge
+  // ----------------------------------------------------
+  const sampleKnowledgeDocs = [
+    {
+      title: "SaaS Enterprise SLA & Incident Severity Matrix 2026",
+      category: "SLA & Reliability",
+      fileType: "md" as const,
+      content:
+        "# Enterprise Service Level Agreement (SLA)\n\n" +
+        "Section 1: Uptime Commitment.\n" +
+        "The platform guarantees 99.99% monthly service availability for Enterprise tier customers. Scheduled maintenance windows must be announced at least 72 hours in advance.\n\n" +
+        "Section 2: Severity Levels and Response Times.\n" +
+        "• Severity 1 (Critical Outage): Core authentication or transaction processing down. Initial response SLA within 15 minutes. 24x7 bridge active.\n" +
+        "• Severity 2 (Major Degradation): High-impact issue with partial workarounds. Initial response SLA within 1 business hour.\n" +
+        "• Severity 3 (Normal Inquiry): General feature inquiries and config assistance. Response SLA within 4 business hours.\n\n" +
+        "Section 3: SLA Credits.\n" +
+        "If availability falls below 99.9%, customers are eligible for a 10% monthly invoice credit upon request within 30 days.",
+    },
+    {
+      title: "Customer Return & 30-Day Money Back Policy 2026",
+      category: "Billing & Invoicing",
+      fileType: "pdf" as const,
+      content:
+        "# Customer Refund & Satisfaction Guarantee\n\n" +
+        "Section 1: 30-Day Money Back Window.\n" +
+        "New subscribers are eligible for an unconditional 100% money-back guarantee within 30 calendar days of initial account creation.\n\n" +
+        "Section 2: Prorated Cancellations.\n" +
+        "Annual upfront plans cancelled after the 30-day window will receive a prorated refund for remaining unused complete calendar months, minus a 5% administrative processing fee.\n\n" +
+        "Section 3: Chargebacks & Hold Reversals.\n" +
+        "Temporary authorization holds appearing on credit cards are released automatically by payment gateways within 72 hours without requiring merchant action.",
+    },
+    {
+      title: "Security Passkey & Hardware Key 2FA Recovery Procedures",
+      category: "Security & 2FA",
+      fileType: "txt" as const,
+      content:
+        "Security Knowledge Base: Passkey & 2FA Device Loss Recovery.\n\n" +
+        "1. Lost Authenticator Phone Protocol:\n" +
+        "If a user loses their TOTP authenticator phone, they must use one of their 10 emergency backup recovery codes generated during initial enrollment.\n\n" +
+        "2. Admin Emergency Verification Bypass:\n" +
+        "If backup codes are exhausted, identity verification requires live video presence or employee badge verification through the company IT security desk.\n\n" +
+        "3. Session Revocation:\n" +
+        "Upon 2FA reset, all existing active JWT tokens and OAuth sessions are revoked immediately across all devices.",
+    },
+  ];
+
+  const handleSelectSampleDoc = (sample: (typeof sampleKnowledgeDocs)[0]) => {
+    setUploadDocTitle(sample.title);
+    setUploadDocCategory(sample.category);
+    setUploadDocFileType(sample.fileType);
+    setUploadDocContent(sample.content);
+  };
+
+  const handleExecuteUploadKnowledge = () => {
+    if (!uploadDocTitle.trim() || !uploadDocContent.trim()) return;
+
+    setIsUploadingDoc(true);
+    setUploadDocProgressStep(1); // parsing
+
+    setTimeout(() => {
+      setUploadDocProgressStep(2); // embedding 384d
+
+      setTimeout(() => {
+        setUploadDocProgressStep(3); // indexing pgvector
+
+        setTimeout(() => {
+          setUploadDocProgressStep(4); // complete
+
+          // Break content into chunks
+          const rawSections = uploadDocContent.split(/\n\n+/).filter((s) => s.trim().length > 0);
+          const generatedChunks = rawSections.map((sec, idx) => {
+            const previewVec = Array.from({ length: 8 }, () => Math.round((Math.random() * 0.4 - 0.2) * 1000) / 1000);
+            return {
+              id: `chk-up-${Date.now()}-${idx}`,
+              index: idx,
+              content: sec.trim(),
+              token_count: Math.round(sec.trim().length / 4),
+              embedding_preview: previewVec,
+            };
+          });
+
+          const newDoc: KnowledgeDocItem = {
+            id: `doc-${Date.now()}`,
+            title: uploadDocTitle.trim(),
+            filename: `${uploadDocTitle.trim().replace(/[^a-zA-Z0-9_-]/g, "_")}.${uploadDocFileType}`,
+            file_type: uploadDocFileType,
+            file_size_bytes: uploadDocContent.length * 2,
+            status: "indexed",
+            chunk_count: generatedChunks.length,
+            content_hash: Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
+            chunks: generatedChunks,
+          };
+
+          setKnowledgeDocs((prev) => [newDoc, ...prev]);
+          setSelectedDocId(newDoc.id);
+
+          // Reset modal form
+          setIsUploadingDoc(false);
+          setUploadDocProgressStep(0);
+          setIsUploadDocModalOpen(false);
+          setUploadDocTitle("");
+          setUploadDocContent("");
+
+          setKnowledgeUploadToast(`Indexed "${newDoc.title}" (${generatedChunks.length} chunks) into pgvector!`);
+          setTimeout(() => setKnowledgeUploadToast(null), 5000);
+        }, 500);
+      }, 400);
+    }, 350);
+  };
+
+  // ----------------------------------------------------
+  // Core Workflow 3: Create & Classify Tickets
+  // ----------------------------------------------------
+  const sampleTicketScenarios = [
+    {
+      title: "Two identical charges of $149 for enterprise renewal invoice",
+      description: "My Visa card statement shows two identical $149 deductions from today morning. I only have one active subscription seat. Please review the payment gateway ledger and reverse the duplicate deduction.",
+      name: "Alex Mercer",
+      email: "alex@customer.com",
+    },
+    {
+      title: "Okta SAML 2.0 assertion 504 gateway timeout on login callback",
+      description: "Users in our organization receive HTTP 504 Gateway Timeout when posting SAML assertion to https://api.support.ai/v1/auth/sso/callback. Clock skew was checked. Need immediate engineering escalation.",
+      name: "Morgan Engineer",
+      email: "morgan@techstart.io",
+    },
+    {
+      title: "Locked out of admin dashboard after lost 2FA phone device",
+      description: "I lost my phone that hosted my Google Authenticator 2FA seed. I cannot log into the admin portal and I need an emergency recovery link or bypass token sent to my verified company email.",
+      name: "Taylor Admin",
+      email: "taylor@fintech.co",
+    },
+    {
+      title: "Shipment tracking number stuck on 'Carrier Label Created' for 6 days",
+      description: "My order ORD-9921 for backup hardware keys was placed last Monday. The DHL tracking number has not updated beyond label creation. Please verify if the item has left the fulfillment warehouse.",
+      name: "Jordan Buyer",
+      email: "jordan@retail.com",
+    },
+  ];
+
+  const handleQuickFillTicketScenario = (sc: (typeof sampleTicketScenarios)[0]) => {
+    setNewTicketTitle(sc.title);
+    setNewTicketDescription(sc.description);
+    setNewTicketCustomerName(sc.name);
+    setNewTicketCustomerEmail(sc.email);
+    handleRunAITicketClassification(sc.title, sc.description);
+  };
+
+  const handleRunAITicketClassification = (overrideTitle?: string, overrideDesc?: string) => {
+    const t = (overrideTitle || newTicketTitle).toLowerCase();
+    const d = (overrideDesc || newTicketDescription).toLowerCase();
+    const text = `${t} ${d}`;
+
+    setIsClassifyingNewTicket(true);
+
+    setTimeout(() => {
+      let cat: TicketItem["category"] = "general_inquiry" as any;
+      let prio: TicketItem["priority"] = "medium";
+      let sentiment: "positive" | "neutral" | "negative" | "frustrated" = "neutral";
+      let action = "Standard customer support routing";
+      let conf = 0.94;
+
+      if (text.includes("charge") || text.includes("bill") || text.includes("refund") || text.includes("invoice") || text.includes("deduction") || text.includes("visa") || text.includes("dollar") || text.includes("$")) {
+        cat = "billing";
+        prio = text.includes("duplicate") || text.includes("unauthorized") ? "high" : "medium";
+        sentiment = "frustrated";
+        action = "Auto-route to Tier 2 Billing Desk. Verify payment gateway transaction logs and 72-hour pre-auth hold.";
+        conf = 0.965;
+      } else if (text.includes("okta") || text.includes("saml") || text.includes("sso") || text.includes("504") || text.includes("timeout") || text.includes("api") || text.includes("error") || text.includes("gateway")) {
+        cat = "technical_issue";
+        prio = "urgent";
+        sentiment = "negative";
+        action = "Escalate to Infrastructure On-Call. Validate ACS callback URL and check server NTP clock drift.";
+        conf = 0.982;
+      } else if (text.includes("2fa") || text.includes("authenticator") || text.includes("password") || text.includes("lost phone") || text.includes("access") || text.includes("login") || text.includes("recovery")) {
+        cat = "account_access";
+        prio = "high";
+        sentiment = "negative";
+        action = "Dispatch 2FA Emergency Verification workflow. Request secondary ID verification.";
+        conf = 0.938;
+      } else if (text.includes("return") || text.includes("cancel") || text.includes("money back")) {
+        cat = "refund_request";
+        prio = "medium";
+        sentiment = "neutral";
+        action = "Check 30-day money-back guarantee window and initiate prorated settlement calculation.";
+        conf = 0.924;
+      } else {
+        cat = "product_inquiry";
+        prio = "low";
+        sentiment = "neutral";
+        action = "Direct to automated AI knowledge assistant or documentation catalog.";
+        conf = 0.895;
+      }
+
+      setNewTicketPredictedCategory(cat);
+      setNewTicketPredictedPriority(prio);
+      setNewTicketSentiment(sentiment);
+      setNewTicketSuggestedAction(action);
+      setNewTicketConfidence(conf);
+      setNewTicketClassified(true);
+      setIsClassifyingNewTicket(false);
+    }, 350);
+  };
+
+  const handleCreateTicketSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTicketTitle.trim()) return;
+
+    const newCode = `TICK-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newId = `t-${Date.now()}`;
+
+    const newTicket: TicketItem = {
+      id: newId,
+      ticket_code: newCode,
+      title: newTicketTitle.trim(),
+      description: newTicketDescription.trim() || newTicketTitle.trim(),
+      customer_name: newTicketCustomerName.trim() || currentUser.name,
+      customer_email: newTicketCustomerEmail.trim() || currentUser.email,
+      assigned_agent_name: currentUser.role === "agent" ? currentUser.name : null,
+      category: newTicketPredictedCategory,
+      priority: newTicketPredictedPriority,
+      status: "open",
+      confidence: newTicketConfidence,
+      created_at: "Just now",
+    };
+
+    setTickets((prev) => [newTicket, ...prev]);
+
+    // Initialize activities
+    setTicketActivities((prev) => ({
+      ...prev,
+      [newId]: [
+        {
+          id: `act-${newId}-1`,
+          author: newTicket.customer_name,
+          role: "customer",
+          content: newTicket.description,
+          timestamp: "Just now",
+        },
+        {
+          id: `act-${newId}-2`,
+          author: "AI Triage System",
+          role: "system",
+          content: `AI Classification: Category ${newTicket.category.toUpperCase()}, Priority ${newTicket.priority.toUpperCase()} (${Math.round(newTicket.confidence * 100)}% confidence). Action: ${newTicketSuggestedAction}`,
+          timestamp: "Just now",
+        },
+      ],
+    }));
+
+    setSelectedTicketId(newId);
+    setIsCreateTicketModalOpen(false);
+    setNewTicketTitle("");
+    setNewTicketDescription("");
+    setNewTicketClassified(false);
+
+    setTicketActionToast(`Ticket ${newCode} created and auto-classified as [${newTicket.category.toUpperCase()}]!`);
+    setTimeout(() => setTicketActionToast(null), 5000);
+  };
+
+  // ----------------------------------------------------
+  // Core Workflow 4: Agent Ticket Management Workbench
+  // ----------------------------------------------------
+  const handleUpdateTicketStatus = (ticketId: string, newStatus: TicketItem["status"]) => {
+    setTickets((prev) =>
+      prev.map((t) => (t.id === ticketId ? { ...t, status: newStatus } : t))
+    );
+
+    const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    setTicketActivities((prev) => ({
+      ...prev,
+      [ticketId]: [
+        ...(prev[ticketId] || []),
+        {
+          id: `act-${Date.now()}`,
+          author: currentUser.name,
+          role: "system",
+          content: `Status updated to ${newStatus.toUpperCase().replace("_", " ")} by ${currentUser.name}`,
+          timestamp,
+        },
+      ],
+    }));
+
+    setTicketActionToast(`Ticket status updated to ${newStatus.toUpperCase().replace("_", " ")}`);
+    setTimeout(() => setTicketActionToast(null), 3000);
+  };
+
+  const handleAssignTicketAgent = (ticketId: string, agentName: string | null) => {
+    setTickets((prev) =>
+      prev.map((t) => (t.id === ticketId ? { ...t, assigned_agent_name: agentName } : t))
+    );
+
+    const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    setTicketActivities((prev) => ({
+      ...prev,
+      [ticketId]: [
+        ...(prev[ticketId] || []),
+        {
+          id: `act-${Date.now()}`,
+          author: currentUser.name,
+          role: "system",
+          content: agentName ? `Assigned to agent ${agentName}` : `Unassigned by ${currentUser.name}`,
+          timestamp,
+        },
+      ],
+    }));
+
+    setTicketActionToast(agentName ? `Assigned to ${agentName}` : "Ticket unassigned");
+    setTimeout(() => setTicketActionToast(null), 3000);
+  };
+
+  const handleSendAgentReply = (ticketId: string) => {
+    if (!agentReplyInput.trim()) return;
+
+    setIsSendingAgentReply(true);
+    const replyText = agentReplyInput.trim();
+    const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    setTimeout(() => {
+      setTicketActivities((prev) => ({
+        ...prev,
+        [ticketId]: [
+          ...(prev[ticketId] || []),
+          {
+            id: `act-${Date.now()}`,
+            author: currentUser.name,
+            role: "agent",
+            content: replyText,
+            timestamp,
+          },
+        ],
+      }));
+
+      // Automatically move status to in_progress if currently open
+      setTickets((prev) =>
+        prev.map((t) => (t.id === ticketId && t.status === "open" ? { ...t, status: "in_progress" } : t))
+      );
+
+      setAgentReplyInput("");
+      setIsSendingAgentReply(false);
+      setTicketActionToast(`Agent response delivered to customer!`);
+      setTimeout(() => setTicketActionToast(null), 3500);
+    }, 300);
+  };
+
+  const handleAddInternalNote = (ticketId: string) => {
+    if (!internalNoteInput.trim()) return;
+
+    const noteText = internalNoteInput.trim();
+    const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    setTicketActivities((prev) => ({
+      ...prev,
+      [ticketId]: [
+        ...(prev[ticketId] || []),
+        {
+          id: `act-${Date.now()}`,
+          author: `${currentUser.name} (Internal Note)`,
+          role: "note",
+          content: noteText,
+          timestamp,
+        },
+      ],
+    }));
+
+    setInternalNoteInput("");
+    setTicketActionToast(`Internal note saved to ticket timeline.`);
+    setTimeout(() => setTicketActionToast(null), 3000);
+  };
+
+  const handleDraftAgentCopilotReply = (targetTicket: TicketItem) => {
+    let drafted = "";
+    if (targetTicket.category === "billing") {
+      drafted = `Dear ${targetTicket.customer_name},\n\nThank you for reaching out regarding ticket ${targetTicket.ticket_code}. I have reviewed your billing transaction.\n\n• The duplicate charge appears to be a temporary authorization hold that automatically drops off within 72 hours.\n• If both charges settled on your final statement, our billing desk will immediately execute a direct refund to your card within 3 to 5 business days.\n\nWarm regards,\n${currentUser.name}\nEnterprise Customer Operations`;
+    } else if (targetTicket.category === "technical_issue") {
+      drafted = `Hello ${targetTicket.customer_name},\n\nThank you for contacting technical engineering regarding ticket ${targetTicket.ticket_code}.\n\n• Please verify that your SAML 2.0 ACS URL is set to https://api.support.ai/v1/auth/sso/callback.\n• Ensure clock skew between identity provider and application servers remains under 120 seconds to prevent HTTP 504 timeouts.\n\nBest regards,\n${currentUser.name}\nTier 2 Infrastructure Team`;
+    } else if (targetTicket.category === "account_access") {
+      drafted = `Hello ${targetTicket.customer_name},\n\nI understand you are locked out of your account. To safely regain access:\n\n1. Use one of your 10 emergency backup recovery codes generated during enrollment.\n2. If exhausted, please reply confirming your phone number and we will issue a 15-minute one-time bypass link.\n\nBest regards,\n${currentUser.name}\nSecurity Operations Desk`;
+    } else {
+      drafted = `Hello ${targetTicket.customer_name},\n\nThank you for contacting customer support regarding ticket ${targetTicket.ticket_code}. We have reviewed the details of your inquiry and are actively investigating.\n\nWe will update you as soon as further progress is made.\n\nSincerely,\n${currentUser.name}`;
+    }
+
+    setAgentReplyInput(drafted);
+    setTicketActionToast("AI Co-Pilot generated response draft!");
+    setTimeout(() => setTicketActionToast(null), 3000);
+  };
+
+  // Customer Chat Message Send with Dynamic Knowledge Base Grounding
   const handleSendChatMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || isChatThinking) return;
@@ -1870,12 +2458,59 @@ Enterprise Cloud Support Desk`,
 
     setTimeout(() => {
       const q = userText.toLowerCase();
+      const queryWords = q.split(/\s+/).filter((w) => w.length > 2);
+
+      let matchedDocTitle = "";
+      let matchedSnippet = "";
+      let matchedScore = 0;
+      let matchedChunkId = "";
+      let matchedChunkIndex = 0;
+      let foundMatch = false;
+
+      // Scan all documents in knowledgeDocs (including newly uploaded documents!)
+      for (const doc of knowledgeDocs) {
+        for (const chk of doc.chunks) {
+          const contentLower = chk.content.toLowerCase();
+          const docTitleLower = doc.title.toLowerCase();
+
+          let matchCount = 0;
+          for (const word of queryWords) {
+            if (contentLower.includes(word) || docTitleLower.includes(word)) {
+              matchCount++;
+            }
+          }
+
+          if (queryWords.length > 0) {
+            const rawScore = matchCount / queryWords.length;
+            if (rawScore > (foundMatch ? matchedScore : 0.2)) {
+              matchedDocTitle = doc.title;
+              matchedSnippet = chk.content;
+              matchedScore = Math.min(0.98, 0.6 + rawScore * 0.38);
+              matchedChunkId = chk.id;
+              matchedChunkIndex = chk.index;
+              foundMatch = true;
+            }
+          }
+        }
+      }
+
       let aiText = "";
       let citations: CitationItem[] = [];
 
-      if (q.includes("refund") || q.includes("bill") || q.includes("duplicate") || q.includes("money") || q.includes("charge")) {
+      if (foundMatch && matchedScore >= 0.35) {
+        aiText = `Based on our verified documentation in "${matchedDocTitle}":\n\n"${matchedSnippet}"\n\nIs there anything else I can clarify or assist you with regarding this policy?`;
+        citations = [
+          {
+            document_title: matchedDocTitle,
+            chunk_id: matchedChunkId,
+            chunk_index: matchedChunkIndex,
+            snippet: matchedSnippet,
+            relevance_score: Math.round(matchedScore * 1000) / 1000,
+          },
+        ];
+      } else if (q.includes("refund") || q.includes("bill") || q.includes("duplicate") || q.includes("charge")) {
         aiText =
-          "According to Section 3.2 of our Billing & Refund Policies, duplicate charges are typically temporary pre-authorization holds that automatically drop off within 72 hours. Confirmed errors are refunded to your original payment card within 3 to 5 business days.\n\nWould you like me to open a support ticket for our billing team?";
+          "According to Section 3.2 of our Billing & Refund Policies, duplicate charges are typically temporary pre-authorization holds that automatically drop off within 72 hours. Confirmed duplicate charges are refunded to your original payment card within 3 to 5 business days.\n\nWould you like me to open a support ticket for our billing team?";
         citations = [
           {
             document_title: "Billing & Refund Policies 2026.pdf",
@@ -1885,7 +2520,7 @@ Enterprise Cloud Support Desk`,
             relevance_score: 0.942,
           },
         ];
-      } else if (q.includes("okta") || q.includes("saml") || q.includes("sso") || q.includes("504") || q.includes("login")) {
+      } else if (q.includes("okta") || q.includes("saml") || q.includes("sso") || q.includes("504")) {
         aiText =
           "According to our SAML Configuration Guide, Okta ACS Single Sign-On URL must be set to https://api.support.ai/v1/auth/sso/callback. If you encounter HTTP 504 errors, please verify that system clock drift between servers is under 120 seconds.";
         citations = [
@@ -1899,7 +2534,7 @@ Enterprise Cloud Support Desk`,
         ];
       } else {
         aiText =
-          "I searched our internal knowledge base, but I could not find verified facts covering this specific request. To make sure you receive accurate guidance, I can connect you directly with a human specialist.";
+          "I searched our company knowledge base, but could not find verified documentation directly covering this specific question.\n\nWould you like to open a support ticket so one of our human support agents can assist you immediately?";
       }
 
       const aiMsg: ChatMessage = {
@@ -1918,7 +2553,7 @@ Enterprise Cloud Support Desk`,
 
       setChatMessages((prev) => [...prev, aiMsg]);
       setIsChatThinking(false);
-    }, 500);
+    }, 450);
   };
 
   const copyToClipboard = (text: string, id: string) => {
@@ -1929,9 +2564,9 @@ Enterprise Cloud Support Desk`,
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
-      {/* Top Banner */}
+      {/* Top Banner with User Session & Quick Actions */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <Bot className="h-5 w-5 text-white" />
@@ -1942,51 +2577,122 @@ Enterprise Cloud Support Desk`,
                   AI Customer Support Platform
                 </h1>
                 <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Phase 10: 100% Complete & Production Certified
+                  Production Ready
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Multi-Channel Webhook Gateways • Slack & Zendesk Sync • Email Inbound • Rate Limiting • Automated Backups • CI/CD
+                AI Triage • pgvector RAG (384d) • Live Agent Workbench • CSAT Analytics • Multi-Channel Webhooks
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/50">
-              <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
-              <span className="text-emerald-300 font-semibold">10/10 Phases Complete</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700">
-              <Zap className="h-3.5 w-3.5 text-amber-400" />
-              <span className="text-slate-300">Active Provider:</span>
-              <span className="font-bold text-amber-300 uppercase">{llmProvider}</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700">
-              <Database className="h-3.5 w-3.5 text-indigo-400" />
-              <span className="text-slate-300">pgvector:</span>
-              <span className="font-bold text-indigo-300">384d Cosine</span>
+          <div className="flex flex-wrap items-center gap-2.5 text-xs">
+            {/* Quick Action: New Ticket */}
+            <button
+              onClick={() => setIsCreateTicketModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition cursor-pointer shadow-sm shadow-indigo-600/30"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>+ New Ticket</span>
+            </button>
+
+            {/* Quick Action: Upload Knowledge */}
+            <button
+              onClick={() => setIsUploadDocModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold transition cursor-pointer"
+            >
+              <Upload className="h-3.5 w-3.5 text-indigo-400" />
+              <span>+ Upload Knowledge</span>
+            </button>
+
+            {/* Active User Session & Switcher Button */}
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+              <button
+                onClick={() => setIsSignInModalOpen(true)}
+                className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/60 transition cursor-pointer text-left"
+                title="Click to switch account or sign in"
+              >
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center font-bold text-[10px] text-white ${
+                  currentUser.role === "agent" ? "bg-indigo-600" : currentUser.role === "admin" ? "bg-purple-600" : "bg-emerald-600"
+                }`}>
+                  {currentUser.avatar}
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold text-white leading-tight flex items-center gap-1">
+                    <span>{currentUser.name}</span>
+                    <span className={`text-[9px] px-1 rounded uppercase font-bold ${
+                      currentUser.role === "agent" ? "bg-indigo-500/20 text-indigo-300" : currentUser.role === "admin" ? "bg-purple-500/20 text-purple-300" : "bg-emerald-500/20 text-emerald-300"
+                    }`}>
+                      {currentUser.role}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 truncate max-w-[110px]">
+                    {currentUser.email}
+                  </div>
+                </div>
+                <LogIn className="h-3.5 w-3.5 text-slate-400 ml-0.5" />
+              </button>
             </div>
           </div>
         </div>
 
+        {/* Global Toast Alerts */}
+        {(authSuccessToast || knowledgeUploadToast || ticketActionToast) && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-2">
+            {authSuccessToast && (
+              <div className="p-2 rounded-lg bg-indigo-950/80 border border-indigo-800 text-indigo-200 text-xs flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <UserCheck className="h-4 w-4 text-indigo-400" />
+                  {authSuccessToast}
+                </span>
+                <button onClick={() => setAuthSuccessToast(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            {knowledgeUploadToast && (
+              <div className="p-2 rounded-lg bg-emerald-950/80 border border-emerald-800 text-emerald-200 text-xs flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
+                  {knowledgeUploadToast}
+                </span>
+                <button onClick={() => setKnowledgeUploadToast(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            {ticketActionToast && (
+              <div className="p-2 rounded-lg bg-sky-950/80 border border-sky-800 text-sky-200 text-xs flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <TicketIcon className="h-4 w-4 text-sky-400" />
+                  {ticketActionToast}
+                </span>
+                <button onClick={() => setTicketActionToast(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Navigation Tabs */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 border-t border-slate-800/60">
-          <nav className="flex space-x-1 sm:space-x-3 overflow-x-auto py-2 scrollbar-none">
+          <nav className="flex space-x-1 sm:space-x-2 overflow-x-auto py-2 scrollbar-none">
             {[
+              { id: "tickets", label: "Agent Desk & Tickets", icon: TicketIcon },
+              { id: "chat", label: "Ask AI Assistant", icon: MessageSquare },
+              { id: "knowledge", label: "Knowledge Base & Upload", icon: BookOpen },
+              { id: "analytics", label: "Live Analytics & CSAT", icon: BarChart3 },
+              { id: "copilot", label: "Agent Co-Pilot", icon: Wand2 },
+              { id: "ml_triage", label: "ML Ticket Classifier", icon: Brain },
               { id: "webhooks", label: "Webhooks & Ops (Phase 10)", icon: Webhook },
-              { id: "analytics", label: "Analytics & CSAT (Phase 9)", icon: BarChart3 },
-              { id: "copilot", label: "Agent Co-Pilot (Phase 8)", icon: Wand2 },
-              { id: "ml_triage", label: "ML Triage & Classifier (Phase 7)", icon: Brain },
-              { id: "rag", label: "RAG Engine & Playground", icon: Sparkles },
-              { id: "chat", label: "Customer Live Chat", icon: MessageSquare },
-              { id: "knowledge", label: "Knowledge Base (384d)", icon: BookOpen },
-              { id: "tickets", label: "Ticket Queue", icon: TicketIcon },
-              { id: "audit", label: "Token & Latency Audit", icon: Activity },
               { id: "auth", label: "Auth & RBAC Studio", icon: Key },
-              { id: "schema", label: "Database Schema (9 Models)", icon: Table },
+              { id: "rag", label: "RAG Engine & Playground", icon: Sparkles },
+              { id: "audit", label: "Token Audit", icon: Activity },
+              { id: "schema", label: "Database Schema", icon: Table },
               { id: "status", label: "System Probes", icon: Server },
               { id: "sandbox", label: "API Sandbox", icon: Code2 },
-              { id: "powershell", label: "PowerShell & Run Guide", icon: Terminal },
+              { id: "powershell", label: "Run Guide", icon: Terminal },
               { id: "roadmap", label: "10-Phase Roadmap", icon: Layers },
             ].map((tab, navIdx) => {
               const Icon = tab.icon;
@@ -4948,6 +5654,28 @@ Enterprise Cloud Support Desk`,
             </div>
 
             <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-4">
+              {/* Quick Prompt Suggestion Chips */}
+              <div className="flex flex-wrap items-center gap-1.5 pb-2 border-b border-slate-800/80 text-xs">
+                <span className="text-slate-400 font-semibold mr-1">Ask Question:</span>
+                {[
+                  "What is the policy for duplicate billing charges?",
+                  "How do I configure Okta SAML ACS single sign-on?",
+                  "Can I cancel my subscription and get a refund?",
+                  "What are the SLA response times for critical incidents?",
+                ].map((prompt, pIdx) => (
+                  <button
+                    key={pIdx}
+                    type="button"
+                    onClick={() => {
+                      setChatInput(prompt);
+                    }}
+                    className="px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800 text-slate-300 text-[11px] transition cursor-pointer"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+
               {/* Message transcript */}
               <div className="space-y-3 max-h-[460px] overflow-y-auto pr-2">
                 {chatMessages.map((msg, mIdx) => (
@@ -4957,7 +5685,7 @@ Enterprise Cloud Support Desk`,
                   >
                     <div className="flex items-center gap-1.5 mb-1 text-[11px] text-slate-400">
                       <span className="font-semibold text-slate-300">
-                        {msg.sender === "customer" ? "You (Alex Customer)" : "AI Support Specialist"}
+                        {msg.sender === "customer" ? `You (${currentUser.name})` : "AI Support Specialist"}
                       </span>
                       <span>•</span>
                       <span>{msg.timestamp}</span>
@@ -4991,6 +5719,28 @@ Enterprise Cloud Support Desk`,
                           ))}
                         </div>
                       )}
+
+                      {/* Escalation button if unverified */}
+                      {msg.sender === "ai" && (!msg.citations || msg.citations.length === 0) && (
+                        <div className="mt-3 pt-2 border-t border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const lastUserMsg = [...chatMessages].reverse().find((m) => m.sender === "customer");
+                              if (lastUserMsg) {
+                                setNewTicketTitle(lastUserMsg.text);
+                                setNewTicketDescription(`Customer asked: "${lastUserMsg.text}"\n\nAI assistant could not find direct policy documentation. Escalating to human support queue.`);
+                                handleRunAITicketClassification(lastUserMsg.text, lastUserMsg.text);
+                              }
+                              setIsCreateTicketModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                          >
+                            <TicketIcon className="h-3.5 w-3.5 text-indigo-400" />
+                            <span>Open Support Ticket for this inquiry</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -5009,7 +5759,7 @@ Enterprise Cloud Support Desk`,
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask a question about billing, refunds, or Okta SSO..."
+                  placeholder="Ask a question about billing, refunds, SLAs, or Okta SSO..."
                   className="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
                 <button
@@ -5030,18 +5780,150 @@ Enterprise Cloud Support Desk`,
         {/* ==================================================== */}
         {activeTab === "knowledge" && (
           <div className="space-y-6">
-            <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <BookOpen className="h-5 w-5 text-indigo-400" />
-                  Indexed Knowledge Documents (pgvector)
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Sentence Transformers (all-MiniLM-L6-v2) 384-dimensional dense vectors stored in PostgreSQL.
-                </p>
+            {/* Top Banner */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-900/40 rounded-xl p-5 shadow-lg">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mt-0.5">
+                    <BookOpen className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        pgvector 384d Dense Embeddings
+                      </span>
+                      <h2 className="text-base font-semibold text-white">
+                        Company Knowledge Base & Vector Documentation Hub
+                      </h2>
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-3xl">
+                      Upload corporate policies, SLAs, authentication walkthroughs, and refund procedures. Chunked semantically and indexed with 384-dimensional dense vectors in PostgreSQL for anti-hallucination RAG citations.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
+                  <button
+                    onClick={() => setIsUploadDocModalOpen(true)}
+                    className="px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-600/30"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span>+ Upload Company Knowledge</span>
+                  </button>
+                </div>
               </div>
-              <span className="px-3 py-1 text-xs rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
-                {knowledgeDocs.length} Documents Indexed
+            </div>
+
+            {/* In-Line Knowledge Ingestion Quick Card */}
+            <div className="p-5 bg-slate-900 border border-slate-800 rounded-xl space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Upload className="h-4 w-4 text-indigo-400" />
+                  <h3 className="text-sm font-bold text-white">Upload & Index New Company Document</h3>
+                </div>
+                <span className="text-[11px] text-slate-400">
+                  Sentence Transformers: <code className="text-indigo-300">all-MiniLM-L6-v2</code>
+                </span>
+              </div>
+
+              {/* Sample Templates Strip */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-400 text-xs font-semibold">Load Sample Policy:</span>
+                {sampleKnowledgeDocs.map((s, sIdx) => (
+                  <button
+                    key={sIdx}
+                    type="button"
+                    onClick={() => handleSelectSampleDoc(s)}
+                    className="px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800 hover:border-indigo-500/60 hover:bg-slate-800 text-slate-300 text-[11px] transition cursor-pointer"
+                  >
+                    {s.title.split("&")[0]}...
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2 space-y-1">
+                  <label className="text-xs font-semibold text-slate-300">Document Title</label>
+                  <input
+                    type="text"
+                    value={uploadDocTitle}
+                    onChange={(e) => setUploadDocTitle(e.target.value)}
+                    placeholder="e.g. Enterprise Service Level Agreement & 99.99% Uptime Policy"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-300">Category Tag</label>
+                  <select
+                    value={uploadDocCategory}
+                    onChange={(e) => setUploadDocCategory(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Billing & Invoicing">Billing & Invoicing</option>
+                    <option value="Technical & SSO">Technical & SSO</option>
+                    <option value="Security & 2FA">Security & 2FA</option>
+                    <option value="SLA & Reliability">SLA & Reliability</option>
+                    <option value="Shipping & Logistics">Shipping & Logistics</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Document Markdown / Text Content</label>
+                <textarea
+                  rows={4}
+                  value={uploadDocContent}
+                  onChange={(e) => setUploadDocContent(e.target.value)}
+                  placeholder="Paste company policy paragraphs, refund guidelines, SAML configuration details, or technical instructions..."
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div className="flex items-center gap-4 text-xs text-slate-400">
+                  <span>Chunking: <strong>250 tokens / chunk</strong></span>
+                  <span>Overlap: <strong>40 tokens</strong></span>
+                  <span>Vectors: <strong>384 dimensions</strong></span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleExecuteUploadKnowledge}
+                  disabled={!uploadDocTitle.trim() || !uploadDocContent.trim() || isUploadingDoc}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shadow-md shadow-indigo-600/30"
+                >
+                  {isUploadingDoc ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                      <span>
+                        {uploadDocProgressStep === 1
+                          ? "Tokenizing & Chunking..."
+                          : uploadDocProgressStep === 2
+                          ? "Generating 384d Vectors..."
+                          : uploadDocProgressStep === 3
+                          ? "Building pgvector Cosine Index..."
+                          : "Finalizing..."}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4" />
+                      <span>Process, Chunk & Index into pgvector</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Document Index Overview */}
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Database className="h-4 w-4 text-indigo-400" />
+                Indexed Corporate Documents ({knowledgeDocs.length})
+              </h3>
+              <span className="text-xs text-slate-400">
+                Click a document card to inspect its dense vector chunks
               </span>
             </div>
 
@@ -5052,7 +5934,7 @@ Enterprise Cloud Support Desk`,
                   onClick={() => setSelectedDocId(doc.id)}
                   className={`p-4 rounded-xl border cursor-pointer transition ${
                     selectedDocId === doc.id
-                      ? "bg-slate-900 border-indigo-500 ring-1 ring-indigo-500/20"
+                      ? "bg-slate-900 border-indigo-500 ring-1 ring-indigo-500/20 shadow-md"
                       : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
                   }`}
                 >
@@ -5070,13 +5952,21 @@ Enterprise Cloud Support Desk`,
                     {doc.chunks.map((chk, cIdx) => (
                       <div
                         key={`doc-chk-${chk.id}-${cIdx}`}
-                        className="p-2.5 rounded bg-slate-950 border border-slate-800/80 text-xs text-slate-300"
+                        className="p-2.5 rounded bg-slate-950 border border-slate-800/80 text-xs text-slate-300 space-y-1.5"
                       >
-                        <div className="flex justify-between text-[10px] text-slate-500 font-mono mb-1">
-                          <span>Chunk #{chk.index}</span>
+                        <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                          <span className="text-indigo-400 font-semibold">Chunk #{chk.index + 1}</span>
                           <span>{chk.token_count} tokens</span>
                         </div>
-                        <p className="line-clamp-2">{chk.content}</p>
+                        <p className="line-clamp-2 text-slate-300 text-[11px] leading-relaxed">
+                          {chk.content}
+                        </p>
+                        {chk.embedding_preview && (
+                          <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1 truncate pt-0.5 border-t border-slate-800/60">
+                            <span className="text-slate-400">Dense Vector (384d):</span>
+                            <span>[{chk.embedding_preview.slice(0, 5).join(", ")}, ...]</span>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -5087,54 +5977,448 @@ Enterprise Cloud Support Desk`,
         )}
 
         {/* ==================================================== */}
-        {/* TAB 4: SUPPORT TICKET QUEUE (Phase 3)               */}
+        {/* TAB: AGENT DESK & TICKET MANAGEMENT WORKBENCH        */}
         {/* ==================================================== */}
-        {activeTab === "tickets" && (
-          <div className="space-y-4">
-            <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <TicketIcon className="h-5 w-5 text-indigo-400" />
-                  Tracked Ticket Queue
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Support ticket escalation with category classification and agent assignments.
-                </p>
-              </div>
-            </div>
+        {activeTab === "tickets" && (() => {
+          const filteredTickets = tickets.filter((t) => {
+            const matchesStatus = ticketFilterStatus === "all" || t.status === ticketFilterStatus;
+            const matchesCategory = ticketFilterCategory === "all" || t.category === ticketFilterCategory;
+            const matchesPriority = ticketFilterPriority === "all" || t.priority === ticketFilterPriority;
+            const q = ticketSearchQuery.toLowerCase();
+            const matchesSearch =
+              !q ||
+              t.ticket_code.toLowerCase().includes(q) ||
+              t.title.toLowerCase().includes(q) ||
+              t.customer_name.toLowerCase().includes(q) ||
+              t.customer_email.toLowerCase().includes(q) ||
+              t.description.toLowerCase().includes(q);
+            return matchesStatus && matchesCategory && matchesPriority && matchesSearch;
+          });
 
-            <div className="space-y-3">
-              {tickets.map((t, tIdx) => (
-                <div
-                  key={`t-${t.id}-${tIdx}`}
-                  className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-indigo-400">{t.ticket_code}</span>
-                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-slate-800 text-slate-300 uppercase font-bold">
-                        {t.category}
-                      </span>
-                      <span className="px-2 py-0.5 text-[10px] rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold uppercase">
-                        {t.priority}
-                      </span>
+          const currentSelectedTicket =
+            tickets.find((t) => t.id === selectedTicketId) || filteredTickets[0] || tickets[0];
+          const activities = currentSelectedTicket ? ticketActivities[currentSelectedTicket.id] || [] : [];
+
+          const openCount = tickets.filter((t) => t.status === "open").length;
+          const inProgressCount = tickets.filter((t) => t.status === "in_progress").length;
+          const resolvedCount = tickets.filter((t) => t.status === "resolved").length;
+
+          return (
+            <div className="space-y-5">
+              {/* Top Banner & KPI Summary */}
+              <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-900/40 rounded-xl p-5 shadow-lg">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mt-0.5">
+                      <TicketIcon className="h-6 w-6" />
                     </div>
-                    <h4 className="text-sm font-bold text-white">{t.title}</h4>
-                    <p className="text-xs text-slate-400">{t.description}</p>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          Agent Workbench
+                        </span>
+                        <h2 className="text-base font-semibold text-white">
+                          Support Ticket Management & AI Triage Queue
+                        </h2>
+                      </div>
+                      <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-3xl">
+                        Real-time ticket classification, agent assignments, multi-status workflows, and grounded AI reply co-pilot for rapid resolution.
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="text-right text-xs text-slate-400 shrink-0">
-                    <div className="font-medium text-slate-300">{t.customer_name}</div>
-                    <div className="text-[11px] text-slate-500">{t.customer_email}</div>
-                    <div className="text-[11px] text-indigo-400 mt-1">
-                      Agent: {t.assigned_agent_name || "Unassigned"}
+                  <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
+                    <button
+                      onClick={() => setIsCreateTicketModalOpen(true)}
+                      className="px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-600/30"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>+ Create & Classify Ticket</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* KPI Metrics Strip */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-800/80">
+                  <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800">
+                    <div className="text-xs text-slate-400">Total Tracked Tickets</div>
+                    <div className="text-lg font-bold text-white mt-0.5">{tickets.length}</div>
+                    <div className="text-[11px] text-slate-500">Across all categories</div>
+                  </div>
+                  <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800">
+                    <div className="text-xs text-amber-400 font-semibold">Open / Unassigned</div>
+                    <div className="text-lg font-bold text-amber-300 mt-0.5">{openCount}</div>
+                    <div className="text-[11px] text-slate-500">Requires triage review</div>
+                  </div>
+                  <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800">
+                    <div className="text-xs text-sky-400 font-semibold">In Progress</div>
+                    <div className="text-lg font-bold text-sky-300 mt-0.5">{inProgressCount}</div>
+                    <div className="text-[11px] text-slate-500">Active agent handling</div>
+                  </div>
+                  <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800">
+                    <div className="text-xs text-emerald-400 font-semibold">Resolved & Closed</div>
+                    <div className="text-lg font-bold text-emerald-300 mt-0.5">{resolvedCount}</div>
+                    <div className="text-[11px] text-emerald-400/80">
+                      {tickets.length > 0 ? Math.round((resolvedCount / tickets.length) * 100) : 0}% Resolution Rate
                     </div>
                   </div>
                 </div>
-              ))}
+              </div>
+
+              {/* Filter Toolbar */}
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                {/* Search Input */}
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={ticketSearchQuery}
+                    onChange={(e) => setTicketSearchQuery(e.target.value)}
+                    placeholder="Search by ticket code, title, customer name..."
+                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 text-xs"
+                  />
+                </div>
+
+                {/* Status Filter Buttons */}
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                  {(
+                    [
+                      { id: "all", label: "All Status" },
+                      { id: "open", label: "Open" },
+                      { id: "in_progress", label: "In Progress" },
+                      { id: "resolved", label: "Resolved" },
+                    ] as const
+                  ).map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => setTicketFilterStatus(st.id)}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer ${
+                        ticketFilterStatus === st.id
+                          ? "bg-indigo-600 text-white font-semibold"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Category Dropdown */}
+                <select
+                  value={ticketFilterCategory}
+                  onChange={(e) => setTicketFilterCategory(e.target.value)}
+                  className="px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="all">All Categories</option>
+                  <option value="billing">Billing</option>
+                  <option value="technical_issue">Technical Issue</option>
+                  <option value="account_access">Account Access</option>
+                  <option value="refund_request">Refund Request</option>
+                  <option value="product_inquiry">Product Inquiry</option>
+                </select>
+
+                {/* Priority Dropdown */}
+                <select
+                  value={ticketFilterPriority}
+                  onChange={(e) => setTicketFilterPriority(e.target.value)}
+                  className="px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="all">All Priorities</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+
+              {/* 2-Column Split: Ticket List (Left 5) & Workbench Action Drawer (Right 7) */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* Left Column: Tickets Queue List (5 cols) */}
+                <div className="lg:col-span-5 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-semibold">
+                    <span>Tickets ({filteredTickets.length})</span>
+                    <span>Click to manage as agent</span>
+                  </div>
+
+                  {filteredTickets.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-xl space-y-3">
+                      <TicketIcon className="h-8 w-8 text-slate-600 mx-auto" />
+                      <div className="text-sm font-semibold text-slate-300">No tickets matching criteria</div>
+                      <p className="text-xs text-slate-500">Try adjusting your status or category filters, or create a new ticket.</p>
+                      <button
+                        onClick={() => setIsCreateTicketModalOpen(true)}
+                        className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer"
+                      >
+                        + Create New Ticket
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[720px] overflow-y-auto pr-1">
+                      {filteredTickets.map((t) => {
+                        const isSelected = currentSelectedTicket?.id === t.id;
+                        return (
+                          <div
+                            key={t.id}
+                            onClick={() => setSelectedTicketId(t.id)}
+                            className={`p-3.5 rounded-xl border text-left cursor-pointer transition space-y-2 ${
+                              isSelected
+                                ? "bg-slate-900 border-indigo-500 ring-1 ring-indigo-500/30 shadow-md"
+                                : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/90"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs font-bold text-indigo-400">{t.ticket_code}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded uppercase ${
+                                    t.priority === "urgent"
+                                      ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                                      : t.priority === "high"
+                                      ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                      : "bg-slate-800 text-slate-400"
+                                  }`}
+                                >
+                                  {t.priority}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase ${
+                                    t.status === "open"
+                                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                      : t.status === "in_progress"
+                                      ? "bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                                      : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                  }`}
+                                >
+                                  {t.status.replace("_", " ")}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <h4 className="text-xs font-semibold text-white line-clamp-1">{t.title}</h4>
+                              <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5">{t.description}</p>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500 border-t border-slate-800/60">
+                              <span className="truncate pr-2 font-medium text-slate-400">{t.customer_name}</span>
+                              <span className="shrink-0 text-slate-500 font-mono">{t.created_at}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Agent Management & Action Drawer (7 cols) */}
+                <div className="lg:col-span-7 space-y-4">
+                  {currentSelectedTicket ? (
+                    <div className="p-5 bg-slate-900 border border-slate-800 rounded-xl space-y-5">
+                      {/* Ticket Header & Metadata */}
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono text-sm font-bold text-indigo-400">
+                              {currentSelectedTicket.ticket_code}
+                            </span>
+                            <span className="px-2 py-0.5 text-[10px] rounded uppercase font-bold bg-slate-800 text-slate-300">
+                              {currentSelectedTicket.category}
+                            </span>
+                            <span className="px-2 py-0.5 text-[10px] rounded uppercase font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                              {currentSelectedTicket.priority} Priority
+                            </span>
+                          </div>
+                          <h3 className="text-base font-bold text-white">{currentSelectedTicket.title}</h3>
+                          <div className="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-2">
+                            <span className="text-slate-300 font-medium">{currentSelectedTicket.customer_name}</span>
+                            <span>•</span>
+                            <span className="font-mono">{currentSelectedTicket.customer_email}</span>
+                            <span>•</span>
+                            <span>{currentSelectedTicket.created_at}</span>
+                          </div>
+                        </div>
+
+                        {/* Status Controls */}
+                        <div className="space-y-1 text-right">
+                          <div className="text-[11px] text-slate-400 font-medium">Update Status:</div>
+                          <div className="flex items-center gap-1.5">
+                            {(["open", "in_progress", "resolved", "closed"] as const).map((st) => (
+                              <button
+                                key={st}
+                                onClick={() => handleUpdateTicketStatus(currentSelectedTicket.id, st)}
+                                className={`px-2.5 py-1 rounded text-xs font-semibold capitalize transition cursor-pointer ${
+                                  currentSelectedTicket.status === st
+                                    ? st === "open"
+                                      ? "bg-amber-600 text-white"
+                                      : st === "in_progress"
+                                      ? "bg-sky-600 text-white"
+                                      : "bg-emerald-600 text-white"
+                                    : "bg-slate-950 text-slate-400 hover:text-white border border-slate-800"
+                                }`}
+                              >
+                                {st.replace("_", " ")}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Agent Assignment & Controls Bar */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs">
+                        <div>
+                          <label className="text-slate-400 font-semibold block mb-1">Assigned Agent:</label>
+                          <select
+                            value={currentSelectedTicket.assigned_agent_name || "unassigned"}
+                            onChange={(e) =>
+                              handleAssignTicketAgent(
+                                currentSelectedTicket.id,
+                                e.target.value === "unassigned" ? null : e.target.value
+                              )
+                            }
+                            className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                          >
+                            <option value="unassigned">Unassigned</option>
+                            <option value="Sarah Jenkins">Sarah Jenkins (Current Agent)</option>
+                            <option value="Marcus Vance">Marcus Vance (Tier 2)</option>
+                            <option value="Elena Rostova">Elena Rostova (Admin)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-slate-400 font-semibold block mb-1">AI Classification Confidence:</label>
+                          <div className="flex items-center gap-2 pt-1">
+                            <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
+                              <div
+                                className="bg-emerald-500 h-full rounded-full"
+                                style={{ width: `${Math.round(currentSelectedTicket.confidence * 100)}%` }}
+                              ></div>
+                            </div>
+                            <span className="font-mono text-emerald-400 font-bold text-xs">
+                              {Math.round(currentSelectedTicket.confidence * 100)}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Activity & Conversation Thread */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                          Ticket Activity & Thread ({activities.length} entries)
+                        </h4>
+
+                        <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
+                          {activities.map((act) => (
+                            <div
+                              key={act.id}
+                              className={`p-3 rounded-lg text-xs space-y-1 ${
+                                act.role === "agent"
+                                  ? "bg-indigo-950/40 border border-indigo-900/50 text-slate-200"
+                                  : act.role === "note"
+                                  ? "bg-amber-950/30 border border-amber-900/50 text-amber-200"
+                                  : act.role === "system"
+                                  ? "bg-slate-950 border border-slate-800 text-slate-400 font-mono text-[11px]"
+                                  : "bg-slate-950 border border-slate-800/90 text-slate-300"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-bold flex items-center gap-1.5">
+                                  {act.role === "agent" && <UserCheck className="h-3 w-3 text-indigo-400" />}
+                                  {act.role === "note" && <Lock className="h-3 w-3 text-amber-400" />}
+                                  {act.role === "system" && <Sparkles className="h-3 w-3 text-cyan-400" />}
+                                  <span className={act.role === "agent" ? "text-indigo-300" : act.role === "note" ? "text-amber-300" : "text-slate-300"}>
+                                    {act.author}
+                                  </span>
+                                </span>
+                                <span className="text-slate-500">{act.timestamp}</span>
+                              </div>
+                              <p className="whitespace-pre-line leading-relaxed">{act.content}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Agent Response Composer & AI Co-Pilot */}
+                      <div className="space-y-3 pt-3 border-t border-slate-800">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <Wand2 className="h-4 w-4 text-indigo-400" />
+                            Agent Reply & AI Co-Pilot Assistant
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleDraftAgentCopilotReply(currentSelectedTicket)}
+                            className="px-2.5 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1 cursor-pointer transition"
+                          >
+                            <Sparkles className="h-3 w-3 text-indigo-400" />
+                            <span>Auto-Draft Grounded Reply</span>
+                          </button>
+                        </div>
+
+                        <textarea
+                          rows={3}
+                          value={agentReplyInput}
+                          onChange={(e) => setAgentReplyInput(e.target.value)}
+                          placeholder="Type response to customer, or click 'Auto-Draft Grounded Reply' to generate a response from the knowledge base..."
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 leading-relaxed font-sans"
+                        />
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSendAgentReply(currentSelectedTicket.id)}
+                              disabled={!agentReplyInput.trim() || isSendingAgentReply}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              <span>Send Customer Reply</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateTicketStatus(currentSelectedTicket.id, "resolved")}
+                              className="px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                            >
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              <span>Resolve Ticket</span>
+                            </button>
+                          </div>
+
+                          {/* Internal Note Drawer */}
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={internalNoteInput}
+                              onChange={(e) => setInternalNoteInput(e.target.value)}
+                              placeholder="Private internal note..."
+                              className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:border-amber-500 w-48"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddInternalNote(currentSelectedTicket.id)}
+                              disabled={!internalNoteInput.trim()}
+                              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded text-xs font-semibold cursor-pointer"
+                            >
+                              Add Note
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-12 text-center bg-slate-900 border border-slate-800 rounded-xl space-y-3">
+                      <TicketIcon className="h-10 w-10 text-slate-600 mx-auto" />
+                      <div className="text-sm font-semibold text-slate-300">Select a ticket from the queue</div>
+                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                        View ticket history, change status, assign agents, and use the AI Co-Pilot to draft grounded responses.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ==================================================== */}
         {/* TAB 5: TOKEN & LATENCY AUDIT LOGS                    */}
@@ -5190,26 +6474,170 @@ Enterprise Cloud Support Desk`,
         {/* TAB 6: AUTH & RBAC STUDIO (Phase 2)                  */}
         {/* ==================================================== */}
         {activeTab === "auth" && (
-          <div className="p-5 bg-slate-900 border border-slate-800 rounded-xl space-y-4">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Key className="h-5 w-5 text-indigo-400" />
-              Authentication & Role-Based Access Control (RBAC)
-            </h2>
-            <p className="text-xs text-slate-400">
-              JWT Bearer tokens signed with HMAC-SHA256 and bcrypt hashed passwords.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { role: "Administrator", email: "admin@support.ai", pass: "AdminPass123!", color: "purple" },
-                { role: "Support Agent", email: "agent@support.ai", pass: "AgentPass123!", color: "blue" },
-                { role: "Customer", email: "customer@support.ai", pass: "CustomerPass123!", color: "emerald" },
-              ].map((acc, aIdx) => (
-                <div key={`acc-${aIdx}`} className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
-                  <div className="font-bold text-white">{acc.role}</div>
-                  <div className="font-mono text-slate-400">{acc.email}</div>
-                  <div className="font-mono text-slate-500">Password: {acc.pass}</div>
+          <div className="p-5 bg-slate-900 border border-slate-800 rounded-xl space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Key className="h-5 w-5 text-indigo-400" />
+                  Authentication, Session Tokens & Role-Based Access Control (RBAC)
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  JWT Bearer tokens signed with HMAC-SHA256, bcrypt hashed passwords, and granular role enforcement.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsSignInModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer transition flex items-center gap-1.5"
+              >
+                <LogIn className="h-3.5 w-3.5" />
+                <span>Open Sign In Dialog</span>
+              </button>
+            </div>
+
+            {/* Current Active Session Callout */}
+            <div className="p-4 rounded-xl bg-slate-950 border border-indigo-900/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`h-11 w-11 rounded-full flex items-center justify-center font-bold text-sm text-white ${
+                  currentUser.role === "agent" ? "bg-indigo-600" : currentUser.role === "admin" ? "bg-purple-600" : "bg-emerald-600"
+                }`}>
+                  {currentUser.avatar}
                 </div>
-              ))}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white text-sm">{currentUser.name}</span>
+                    <span className="px-2 py-0.5 text-[10px] rounded font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Active Session: {currentUser.role}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">{currentUser.title} • {currentUser.email}</div>
+                  <div className="text-[10px] text-slate-500 font-mono mt-1 truncate max-w-md">
+                    Bearer Token: {currentUser.token}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300 font-mono">
+                  HMAC-SHA256 • 3600s TTL
+                </span>
+              </div>
+            </div>
+
+            {/* Persona Switcher Cards */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5">
+                Switch Role / Instant Authentication
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {availableUsers.map((u, aIdx) => {
+                  const isCurrent = currentUser.id === u.id;
+                  return (
+                    <div
+                      key={`acc-${aIdx}`}
+                      className={`p-4 rounded-xl bg-slate-950 border transition space-y-3 text-xs ${
+                        isCurrent
+                          ? "border-indigo-500 ring-1 ring-indigo-500/30"
+                          : "border-slate-800 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold text-white capitalize">{u.role} Role</div>
+                        {isCurrent ? (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
+                            Current
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="font-semibold text-slate-200">{u.name}</div>
+                        <div className="font-mono text-slate-400 text-[11px]">{u.email}</div>
+                        <div className="text-[10px] text-slate-500">{u.department}</div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSignIn(u)}
+                        disabled={isCurrent}
+                        className={`w-full py-2 rounded-lg font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                          isCurrent
+                            ? "bg-slate-900 text-slate-500 cursor-default"
+                            : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                        }`}
+                      >
+                        {isCurrent ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            <span>Active User</span>
+                          </>
+                        ) : (
+                          <>
+                            <LogIn className="h-3.5 w-3.5" />
+                            <span>Sign In as {u.name.split(" ")[0]}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* RBAC Capabilities Table */}
+            <div className="space-y-2 pt-2 border-t border-slate-800">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                RBAC Access Matrix
+              </h3>
+              <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 text-xs">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-900 text-slate-400 text-[11px] uppercase border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Capability</th>
+                      <th className="py-2.5 px-3">Customer</th>
+                      <th className="py-2.5 px-3">Support Agent</th>
+                      <th className="py-2.5 px-3">Administrator</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80 text-slate-300 text-xs">
+                    <tr>
+                      <td className="py-2 px-3 font-medium">Ask AI & Live Chat RAG</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-medium">Create & Classify Support Tickets</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-medium">Agent Workbench: Change Status & Assign</td>
+                      <td className="py-2 px-3 text-slate-500">Read-Only</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-medium">AI Co-Pilot Grounded Replies</td>
+                      <td className="py-2 px-3 text-slate-500">No</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-medium">Upload Company Knowledge (pgvector)</td>
+                      <td className="py-2 px-3 text-slate-500">No</td>
+                      <td className="py-2 px-3 text-slate-500">No</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3 font-medium">Executive CSAT & Real-Time Analytics</td>
+                      <td className="py-2 px-3 text-slate-500">No</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold">✓ Allowed</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -5415,6 +6843,416 @@ Enterprise Cloud Support Desk`,
           </div>
         )}
       </main>
+
+      {/* ==================================================== */}
+      {/* MODAL 1: SIGN IN & ROLE SWITCHER                    */}
+      {/* ==================================================== */}
+      {isSignInModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+                  <LogIn className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Sign In & Role Switcher</h3>
+                  <p className="text-xs text-slate-400">Switch user profile or enter credentials to sign in</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsSignInModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Quick 1-Click Role Profiles */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300 block">Select Demo Persona (Instant Sign In):</label>
+              <div className="space-y-2">
+                {availableUsers.map((u) => {
+                  const isCurrent = currentUser.id === u.id;
+                  return (
+                    <div
+                      key={u.id}
+                      onClick={() => handleSignIn(u)}
+                      className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition ${
+                        isCurrent
+                          ? "bg-indigo-950/40 border-indigo-500 ring-1 ring-indigo-500/30"
+                          : "bg-slate-950 border-slate-800 hover:border-slate-700 hover:bg-slate-800/50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs text-white ${
+                            u.role === "agent" ? "bg-indigo-600" : u.role === "admin" ? "bg-purple-600" : "bg-emerald-600"
+                          }`}
+                        >
+                          {u.avatar}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white flex items-center gap-2">
+                            <span>{u.name}</span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                                u.role === "agent"
+                                  ? "bg-indigo-500/20 text-indigo-300"
+                                  : u.role === "admin"
+                                  ? "bg-purple-500/20 text-purple-300"
+                                  : "bg-emerald-500/20 text-emerald-300"
+                              }`}
+                            >
+                              {u.role}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-400">{u.title} • {u.department}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">{u.email}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {isCurrent ? (
+                          <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                            <Check className="h-3.5 w-3.5" /> Active
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium">
+                            Switch →
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Credentials Form */}
+            <form onSubmit={handleManualLogin} className="pt-3 border-t border-slate-800 space-y-3">
+              <label className="text-xs font-semibold text-slate-300 block">Or Custom Credentials Sign-In:</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <div>
+                  <input
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="email@company.com"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Password"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-slate-400">Role:</span>
+                  {(["agent", "customer", "admin"] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setLoginRole(r)}
+                      className={`px-2 py-0.5 rounded text-[11px] capitalize cursor-pointer transition ${
+                        loginRole === r ? "bg-indigo-600 text-white font-bold" : "bg-slate-950 text-slate-400 border border-slate-800"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold cursor-pointer transition"
+                >
+                  Sign In
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODAL 2: UPLOAD COMPANY KNOWLEDGE                   */}
+      {/* ==================================================== */}
+      {isUploadDocModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Upload Company Knowledge</h3>
+                  <p className="text-xs text-slate-400">Index policy documents into PostgreSQL pgvector 384d</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsUploadDocModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Quick Templates */}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-300 block">Pre-fill Sample Policy:</label>
+              <div className="flex flex-wrap gap-2">
+                {sampleKnowledgeDocs.map((s, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSelectSampleDoc(s)}
+                    className="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800 text-slate-300 text-[11px] transition cursor-pointer"
+                  >
+                    {s.title.split("&")[0]}...
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="space-y-1">
+                <label className="text-slate-300 font-semibold block">Document Title</label>
+                <input
+                  type="text"
+                  value={uploadDocTitle}
+                  onChange={(e) => setUploadDocTitle(e.target.value)}
+                  placeholder="e.g. Enterprise SLA & Incident Severity Matrix"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-slate-300 font-semibold block">Category</label>
+                <select
+                  value={uploadDocCategory}
+                  onChange={(e) => setUploadDocCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="Billing & Invoicing">Billing & Invoicing</option>
+                  <option value="Technical & SSO">Technical & SSO</option>
+                  <option value="Security & 2FA">Security & 2FA</option>
+                  <option value="SLA & Reliability">SLA & Reliability</option>
+                  <option value="Shipping & Logistics">Shipping & Logistics</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1 text-xs">
+              <label className="text-slate-300 font-semibold block">Document Content (Text or Markdown)</label>
+              <textarea
+                rows={5}
+                value={uploadDocContent}
+                onChange={(e) => setUploadDocContent(e.target.value)}
+                placeholder="Paste corporate policies, FAQs, or troubleshooting steps here..."
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500 font-mono leading-relaxed"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <span className="text-[11px] text-slate-500">
+                Chunk size: 250 tokens • all-MiniLM-L6-v2 model
+              </span>
+              <button
+                type="button"
+                onClick={handleExecuteUploadKnowledge}
+                disabled={!uploadDocTitle.trim() || !uploadDocContent.trim() || isUploadingDoc}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-2 cursor-pointer transition shadow-md shadow-indigo-600/30"
+              >
+                {isUploadingDoc ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                    <span>Processing & Indexing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4" />
+                    <span>Index into Knowledge Base</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODAL 3: CREATE & CLASSIFY SUPPORT TICKET           */}
+      {/* ==================================================== */}
+      {isCreateTicketModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+                  <TicketIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Create & Classify Support Ticket</h3>
+                  <p className="text-xs text-slate-400">Submit an issue with automatic AI category and priority classification</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCreateTicketModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Quick Fill Sample Issues */}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-300 block">Pre-fill Sample Scenario:</label>
+              <div className="flex flex-wrap gap-2">
+                {sampleTicketScenarios.map((sc, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleQuickFillTicketScenario(sc)}
+                    className="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800 text-slate-300 text-[11px] transition cursor-pointer"
+                  >
+                    {sc.title.split(" ")[0]} {sc.title.split(" ")[1]}...
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <form onSubmit={handleCreateTicketSubmit} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-semibold block">Customer Name</label>
+                  <input
+                    type="text"
+                    value={newTicketCustomerName}
+                    onChange={(e) => setNewTicketCustomerName(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-semibold block">Customer Email</label>
+                  <input
+                    type="email"
+                    value={newTicketCustomerEmail}
+                    onChange={(e) => setNewTicketCustomerEmail(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-300 font-semibold block">Issue Summary / Title</label>
+                <input
+                  type="text"
+                  value={newTicketTitle}
+                  onChange={(e) => {
+                    setNewTicketTitle(e.target.value);
+                    if (e.target.value.length > 5) {
+                      handleRunAITicketClassification(e.target.value, newTicketDescription);
+                    }
+                  }}
+                  placeholder="e.g. Duplicate charge on credit card renewal"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-300 font-semibold">Detailed Description</label>
+                  <button
+                    type="button"
+                    onClick={() => handleRunAITicketClassification()}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Brain className="h-3 w-3" />
+                    <span>Run AI Classification</span>
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={newTicketDescription}
+                  onChange={(e) => setNewTicketDescription(e.target.value)}
+                  placeholder="Describe what occurred, any error messages, or affected accounts..."
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-indigo-500 leading-relaxed font-sans"
+                />
+              </div>
+
+              {/* AI Real-Time Classification Result Banner */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-indigo-900/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-indigo-300 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+                    Real-Time AI Triage Prediction:
+                  </span>
+                  {isClassifyingNewTicket ? (
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                      <RefreshCw className="h-3 w-3 animate-spin text-indigo-400" />
+                      Analyzing...
+                    </span>
+                  ) : (
+                    <span className="font-mono text-emerald-400 font-bold text-[11px]">
+                      {Math.round(newTicketConfidence * 100)}% Confidence
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
+                  <div>
+                    <span className="text-slate-500 block">Category:</span>
+                    <span className="font-bold text-white uppercase">{newTicketPredictedCategory}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Priority:</span>
+                    <span className="font-bold text-amber-400 uppercase">{newTicketPredictedPriority}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Sentiment:</span>
+                    <span className="font-bold text-rose-300 capitalize">{newTicketSentiment}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Routing:</span>
+                    <span className="text-slate-300 font-medium truncate block">Tier 2 Support</span>
+                  </div>
+                </div>
+
+                {newTicketSuggestedAction && (
+                  <p className="text-[10px] text-slate-400 border-t border-slate-800/80 pt-1.5">
+                    <strong>Recommended Action:</strong> {newTicketSuggestedAction}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateTicketModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newTicketTitle.trim()}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/30"
+                >
+                  <TicketIcon className="h-3.5 w-3.5" />
+                  <span>Submit & Queue Ticket</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-950/80 py-4 mt-auto">
