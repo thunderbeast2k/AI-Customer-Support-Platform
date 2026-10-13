@@ -1,0 +1,98 @@
+# Production Docker Compose Profile for AI Customer Support Platform (Phase 10)
+# Enforces resource limits, healthchecks, restart policies, and isolated networks.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: customer_support_prod_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres_prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password must be set in environment}
+      POSTGRES_DB: ${POSTGRES_DB:-customer_support_prod}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - prod_postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_prod.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres_prod} -d ${POSTGRES_DB:-customer_support_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: customer_support_prod_backend
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips="*"
+    environment:
+      - ENVIRONMENT=production
+      - PROJECT_NAME=AI Customer Support Platform
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-postgres_prod}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-customer_support_prod}
+      - SECRET_KEY=${SECRET_KEY:?Production SECRET_KEY must be configured}
+      - RATE_LIMIT_ENABLED=true
+      - RATE_LIMIT_DEFAULT_PER_MINUTE=120
+      - SECURITY_HEADERS_ENABLED=true
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2048M
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - internal_net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: customer_support_prod_frontend
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - VITE_API_BASE_URL=/api/v1
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    depends_on:
+      - backend
+    networks:
+      - internal_net
+
+networks:
+  internal_net:
+    driver: bridge
+
+volumes:
+  prod_postgres_data:
+    driver: local

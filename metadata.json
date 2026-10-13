@@ -1,0 +1,6 @@
+{
+  "name": "AI Customer Support Platform",
+  "description": "An AI-powered customer service, ticket classification, and RAG knowledge base platform with FastAPI, scikit-learn, and PostgreSQL pgvector.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
