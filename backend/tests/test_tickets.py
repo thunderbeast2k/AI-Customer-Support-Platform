@@ -12,7 +12,7 @@ from app.core.database import Base, get_db
 from app.models.user import User, UserRole
 
 # In-memory SQLite database
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+SQLALCHEMY_DATABASE_URL = "sqlite://"
 
 test_engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

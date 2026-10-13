@@ -19,7 +19,7 @@ from app.services.rag_orchestrator import orchestrate_rag_response
 from app.services.hybrid_retriever import HybridRetriever
 
 # Setup in-memory SQLite database for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+SQLALCHEMY_DATABASE_URL = "sqlite://"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
